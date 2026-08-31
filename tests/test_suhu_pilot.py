@@ -413,7 +413,7 @@ class NotebookTests(unittest.TestCase):
         for number, cell in enumerate(code_cells, start=1):
             source = "".join(cell["source"])
             self.assertTrue(
-                source.startswith(f"# Cell {number} — "),
+                source.startswith(f"# Cell {number} - ") or source.startswith(f"# Cell {number} — "),
                 f'{cell["id"]} is missing its visible cell label',
             )
 

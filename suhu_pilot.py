@@ -68,8 +68,8 @@ def load_config(path):
         or len(set(preview_frames)) != len(preview_frames)
     ):
         raise ValueError("hand_refinement.preview_frames must contain unique positive integers")
-    if hand_refinement.get("method") != "mediapipe_smplx_optimization":
-        raise ValueError("hand_refinement.method must be mediapipe_smplx_optimization")
+    if hand_refinement.get("method") not in {"mediapipe", "mediapipe_smplx_optimization"}:
+        raise ValueError("hand_refinement.method must be mediapipe or mediapipe_smplx_optimization")
     if not isinstance(hand_refinement.get("input_mirrored"), bool):
         raise ValueError("hand_refinement.input_mirrored must be boolean")
     for key in ("minimum_detection_confidence", "minimum_tracking_confidence"):
