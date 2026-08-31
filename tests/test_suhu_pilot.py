@@ -228,6 +228,25 @@ class ReviewTests(unittest.TestCase):
 
 
 class NotebookTests(unittest.TestCase):
+    def test_colab_pins_yapf_for_mmcv_compatibility(self):
+        notebook_path = Path(__file__).parents[1] / "notebooks/suhu_pilot_colab.ipynb"
+        notebook = json.loads(notebook_path.read_text(encoding="utf-8"))
+        cells = {cell["id"]: cell for cell in notebook["cells"]}
+        environment_source = "".join(cells["environment"]["source"])
+
+        self.assertIn("'yapf==0.40.1'", environment_source)
+        self.assertIn("yapf=0.40.1", environment_source)
+
+    def test_representative_inference_persists_subprocess_error_output(self):
+        notebook_path = Path(__file__).parents[1] / "notebooks/suhu_pilot_colab.ipynb"
+        notebook = json.loads(notebook_path.read_text(encoding="utf-8"))
+        cells = {cell["id"]: cell for cell in notebook["cells"]}
+        representative_source = "".join(cells["representative-frame"]["source"])
+
+        self.assertIn("capture_output=True", representative_source)
+        self.assertIn("representative_frame.log", representative_source)
+        self.assertIn("result.stderr", representative_source)
+
     def test_colab_anchors_upstream_inference_working_directory(self):
         notebook_path = Path(__file__).parents[1] / "notebooks/suhu_pilot_colab.ipynb"
         notebook = json.loads(notebook_path.read_text(encoding="utf-8"))
