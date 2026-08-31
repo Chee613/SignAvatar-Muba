@@ -84,6 +84,31 @@ class ConfigTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "width"):
             validate_source_probe(probe, config)
 
+    def test_validate_file_accepts_expected_size_and_sha256(self):
+        from suhu_pilot import validate_file
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "asset.bin"
+            path.write_bytes(b"abc")
+
+            result = validate_file(
+                path,
+                expected_size=3,
+                expected_sha256="ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+            )
+
+        self.assertEqual(result["size"], 3)
+
+    def test_validate_file_rejects_corrupt_download(self):
+        from suhu_pilot import validate_file
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "asset.bin"
+            path.write_bytes(b"abc")
+
+            with self.assertRaisesRegex(ValueError, "SHA-256"):
+                validate_file(path, expected_size=3, expected_sha256="0" * 64)
+
 
 class MotionTests(unittest.TestCase):
     @staticmethod
@@ -211,6 +236,7 @@ class NotebookTests(unittest.TestCase):
             "drive",
             "preflight",
             "environment",
+            "public-assets-download",
             "private-assets",
             "source-validation",
             "preprocess",
@@ -225,6 +251,14 @@ class NotebookTests(unittest.TestCase):
         cells = {cell["id"]: cell for cell in notebook["cells"]}
 
         self.assertEqual(required_ids - cells.keys(), set())
+        self.assertLess(
+            list(cells).index("public-assets-download"),
+            list(cells).index("private-assets"),
+        )
+        public_assets_source = "".join(cells["public-assets-download"]["source"])
+        self.assertIn("--continue-at", public_assets_source)
+        self.assertIn("smpler_x_h32.pth.tar", public_assets_source)
+        self.assertIn("faster_rcnn_r50_fpn_1x_coco_20200130-047c8118.pth", public_assets_source)
         for cell in notebook["cells"]:
             source = "".join(cell["source"])
             self.assertNotIn("TODO", source)

@@ -1,4 +1,5 @@
 import json
+import hashlib
 import os
 from fractions import Fraction
 from pathlib import Path
@@ -56,6 +57,24 @@ def load_config(path):
         if config[key] <= 0:
             raise ValueError(f"{key} must be positive")
     return config
+
+
+def validate_file(path, expected_size, expected_sha256):
+    path = Path(path)
+    if path.stat().st_size != expected_size:
+        raise ValueError(
+            f"{path.name} size is {path.stat().st_size}, expected {expected_size}"
+        )
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    actual_sha256 = digest.hexdigest()
+    if actual_sha256 != expected_sha256.lower():
+        raise ValueError(
+            f"{path.name} SHA-256 is {actual_sha256}, expected {expected_sha256}"
+        )
+    return {"path": str(path), "size": expected_size, "sha256": actual_sha256}
 
 
 def validate_source_probe(probe, config):

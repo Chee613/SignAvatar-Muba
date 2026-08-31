@@ -30,11 +30,11 @@ MyDrive/BIM-Avatar/
 │   └── Suhu.mp4
 ├── models/
 │   ├── smplerx/
-│   │   ├── smpler_x_h32.pth.tar
+│   │   ├── smpler_x_h32.pth.tar        # notebook downloads and verifies
 │   │   └── smpler_x_l32.pth.tar        # optional OOM fallback
 │   ├── mmdet/
-│   │   ├── faster_rcnn_r50_fpn_1x_coco_20200130-047c8118.pth
-│   │   └── mmdet_faster_rcnn_r50_fpn_coco.py
+│   │   ├── faster_rcnn_r50_fpn_1x_coco_20200130-047c8118.pth  # automatic
+│   │   └── mmdet_faster_rcnn_r50_fpn_coco.py                  # automatic
 │   └── smplx/
 │       ├── MANO_SMPLX_vertex_ids.pkl
 │       ├── SMPL-X__FLAME_vertex_ids.npy
@@ -61,13 +61,15 @@ Obtain the files from their official sources:
 
 Models, videos, parameters, extracted frames, and generated media are ignored by Git. Do not override those exclusions or redistribute private assets.
 
+The notebook downloads H32 (7.94 GB) and the two public MMDetection files directly into Drive using pinned official URLs. Interrupted downloads resume, and exact file size plus SHA-256 must pass before inference. Make sure the connected Drive has enough free storage. SMPL-X, SMPL, and the optional L32 fallback remain manual because they are restricted or selected only after the H32 resource test.
+
 ## Run the pilot
 
 1. Merge or push this implementation so Colab can clone it. If it is not on `main`, change `PILOT_REPO_REF` in the notebook settings cell to the pushed branch name.
 2. Open the notebook in Colab and select a **T4 GPU** runtime.
 3. Run cells in order. The preflight requires at least 14 GiB free VRAM, 10 GiB available system RAM, and 20 GiB temporary disk.
-4. Let the notebook build the isolated Python 3.8 / PyTorch 1.12 / CUDA 11.3 environment. The first setup is slow; subsequent cells reuse it within the same runtime.
-5. Inspect the frame-38 overlay before full inference. If H32 reports CUDA out-of-memory, restart the runtime, change `MODEL_NAME` to `smpler_x_l32`, provide its checkpoint, and rerun from the private-assets cell. Do not modify mixed precision for this pilot.
+4. Let the notebook build the isolated Python 3.8 / PyTorch 1.12 / CUDA 11.3 environment and download the verified public checkpoints. The first setup is slow; interrupted H32 downloads resume from the bytes already stored in Drive.
+5. Upload the personally licensed SMPL-X and SMPL files listed above, then inspect the frame-38 overlay. If H32 reports CUDA out-of-memory, restart the runtime, change `MODEL_NAME` to `smpler_x_l32`, provide its checkpoint, and rerun from the private-assets cell. Do not modify mixed precision for this pilot.
 6. Run full inference. Disconnects are recoverable: completed artifacts have already been copied to Drive and the next runtime starts at the first unfinished frame.
 7. Resolve any flagged motion frame against the source. The notebook never smooths or interpolates hands automatically.
 8. Inspect the source, overlay, and avatar videos at normal and half speed.
