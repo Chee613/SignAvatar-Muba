@@ -119,10 +119,9 @@ def main():
                     pose=pose,
                 )
             rgb, _ = renderer.render(scene)
-            cv2.imwrite(
-                str(args.output_dir / f"{frame:06d}.png"),
-                cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR),
-            )
+            output_path = args.output_dir / f"{frame:06d}.png"
+            if not cv2.imwrite(str(output_path), cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)):
+                raise OSError(f"failed to write {output_path}")
     finally:
         renderer.delete()
 

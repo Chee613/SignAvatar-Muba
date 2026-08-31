@@ -114,6 +114,20 @@ class ConfigTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "SHA-256"):
                 validate_file(path, expected_size=3, expected_sha256="0" * 64)
 
+    def test_validate_file_records_hash_when_only_size_is_known(self):
+        from suhu_pilot import validate_file
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "asset.bin"
+            path.write_bytes(b"abc")
+
+            result = validate_file(path, expected_size=3)
+
+        self.assertEqual(
+            result["sha256"],
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+        )
+
 
 class MotionTests(unittest.TestCase):
     @staticmethod
@@ -478,6 +492,7 @@ class NotebookTests(unittest.TestCase):
 
         setup = "".join(cells["hamer-setup"]["source"])
         self.assertIn("3a01849f4148352e9260b69bf28b65d1671a4905", setup)
+        self.assertIn("901c124b9163294449b44821a642ae8e99d41cb0", setup)
         self.assertIn("Python 3.10", setup)
         self.assertIn("torch==2.0.0", setup)
         self.assertIn("torchvision==0.15.1", setup)

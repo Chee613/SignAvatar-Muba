@@ -244,7 +244,8 @@ def run_inference(args):
         )
         selected_boxes = np.stack([boxes[side] for side, _ in missing_sides])
         handedness = np.asarray([is_right for _, is_right in missing_sides], dtype=np.float32)
-        dataset = ViTDetDataset(model_cfg, image, selected_boxes, handedness, rescale_factor=2.0)
+        # The projected boxes already include the configured padding.
+        dataset = ViTDetDataset(model_cfg, image, selected_boxes, handedness, rescale_factor=1.0)
         batch = next(iter(torch.utils.data.DataLoader(dataset, batch_size=len(dataset), shuffle=False, num_workers=0)))
         batch = recursive_to(batch, device)
         with torch.no_grad():
@@ -252,15 +253,6 @@ def run_inference(args):
 
         for item_index, (side, is_right) in enumerate(missing_sides):
             prediction_path = args.output_dir / "mano" / f"{frame:05d}_{side}.npz"
-            np.savez_compressed(
-                prediction_path,
-                hand_pose=result["pred_mano_params"]["hand_pose"][item_index].detach().cpu().numpy(),
-                global_orient=result["pred_mano_params"]["global_orient"][item_index].detach().cpu().numpy(),
-                betas=result["pred_mano_params"]["betas"][item_index].detach().cpu().numpy(),
-                box=boxes[side],
-                is_right=np.asarray(is_right),
-                frame_number=np.asarray(frame),
-            )
             patch = batch["img"][item_index].detach().cpu()
             patch_rgb = patch * torch.tensor(DEFAULT_STD)[:, None, None] / 255
             patch_rgb = patch_rgb + torch.tensor(DEFAULT_MEAN)[:, None, None] / 255
@@ -272,14 +264,24 @@ def run_inference(args):
                 mesh_base_color=(0.65, 0.74, 0.86),
                 scene_bg_color=(1, 1, 1),
             )
-            cv2.imwrite(
-                str(args.output_dir / "crops" / f"{frame:05d}_{side}.jpg"),
-                np.uint8(255 * patch_rgb[:, :, ::-1]),
-            )
-            cv2.imwrite(
-                str(args.output_dir / "overlays" / f"{frame:05d}_{side}.jpg"),
-                np.uint8(255 * rendered[:, :, ::-1]),
-            )
+            crop_path = args.output_dir / "crops" / f"{frame:05d}_{side}.jpg"
+            overlay_path = args.output_dir / "overlays" / f"{frame:05d}_{side}.jpg"
+            if not cv2.imwrite(str(crop_path), np.uint8(255 * patch_rgb[:, :, ::-1])):
+                raise OSError(f"failed to write {crop_path}")
+            if not cv2.imwrite(str(overlay_path), np.uint8(255 * rendered[:, :, ::-1])):
+                raise OSError(f"failed to write {overlay_path}")
+            temporary = prediction_path.with_suffix(".npz.tmp")
+            with temporary.open("wb") as stream:
+                np.savez_compressed(
+                    stream,
+                    hand_pose=result["pred_mano_params"]["hand_pose"][item_index].detach().cpu().numpy(),
+                    global_orient=result["pred_mano_params"]["global_orient"][item_index].detach().cpu().numpy(),
+                    betas=result["pred_mano_params"]["betas"][item_index].detach().cpu().numpy(),
+                    box=boxes[side],
+                    is_right=np.asarray(is_right),
+                    frame_number=np.asarray(frame),
+                )
+            os.replace(temporary, prediction_path)
             progress = reconcile_hand_progress(args.output_dir, args.frames)
 
     progress = reconcile_hand_progress(args.output_dir, args.frames)

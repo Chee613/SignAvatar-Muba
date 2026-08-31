@@ -11,13 +11,19 @@ models/
 runs/
 reviews/
 frames/
+hands/
+_DATA/
+hamer_demo_assets/
 
 # Restricted models and generated media
 *.pth
 *.pth.tar
+*.ckpt
+*.tar.gz
 *.pkl
 *.npz
 *.obj
 *.mp4
 *.avi
 *.mov
+*_hand_refined.*

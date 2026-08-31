@@ -74,7 +74,7 @@ def load_config(path):
     return config
 
 
-def validate_file(path, expected_size, expected_sha256):
+def validate_file(path, expected_size, expected_sha256=None):
     path = Path(path)
     if path.stat().st_size != expected_size:
         raise ValueError(
@@ -85,7 +85,7 @@ def validate_file(path, expected_size, expected_sha256):
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
             digest.update(chunk)
     actual_sha256 = digest.hexdigest()
-    if actual_sha256 != expected_sha256.lower():
+    if expected_sha256 is not None and actual_sha256 != expected_sha256.lower():
         raise ValueError(
             f"{path.name} SHA-256 is {actual_sha256}, expected {expected_sha256}"
         )

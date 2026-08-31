@@ -1,28 +1,26 @@
 # SUHU BIM avatar pilot
 
-This repository implements the one-word hackathon gate: convert `Suhu.mp4` to per-frame SMPL-X motion with SMPLer-X-H32, render that motion on a neutral SMPL-X avatar, and require three BIM-fluent reviewers to recognize **SUHU** before processing more vocabulary.
+This repository implements the one-word hackathon gate for **SUHU**. It reconstructs the signer with SMPLer-X-H32, refines both finger poses with HaMeR, renders a neutral SMPL-X avatar, and requires three BIM-fluent reviewers to recognize the sign before any vocabulary expansion.
 
-The guided workflow is [notebooks/suhu_pilot_colab.ipynb](notebooks/suhu_pilot_colab.ipynb). It is designed for a free Google Colab Tesla T4 and persists each completed frame in private Google Drive. It performs pretrained inference only; there is no training or fine-tuning.
+The guided workflow is [notebooks/suhu_pilot_colab.ipynb](notebooks/suhu_pilot_colab.ipynb). It targets a free Google Colab Tesla T4, persists every completed prediction in private Google Drive, and performs pretrained inference only—there is no training or fine-tuning.
 
-## Scope
+## What the pilot does
 
-Included:
+- Pins SMPLer-X at `064baef0e4ab5277a3297691bc1d46ea5412586f`.
+- Pins HaMeR at `3a01849f4148352e9260b69bf28b65d1671a4905`.
+- Uses the Mano2Smpl-X left/right conversion from reference commit `901c124b9163294449b44821a642ae8e99d41cb0`.
+- Validates the original 1280×720, 50 FPS, 146-frame H.264 clip.
+- Produces a 30 FPS derivative, resumable SMPLer-X outputs, QA, and comparison videos.
+- Runs HaMeR on preview frames `16, 25, 38, 55, 73` before the full clip.
+- Replaces only `left_hand_pose` and `right_hand_pose`; body, wrists, timing, face, shape, and translation remain from SMPLer-X.
+- Renders refined hands with `use_pca=False` and `flat_hand_mean=True`.
+- Stops before the full vocabulary unless the blind BIM review passes.
 
-- pinned SMPLer-X revision `064baef0e4ab5277a3297691bc1d46ea5412586f`;
-- strict validation of the original 1280×720, 50 FPS, 146-frame H.264 clip;
-- a silent 30 FPS derivative and approximately 88 sequential frames;
-- H32 resource testing on frame 38;
-- restart-safe, single-person inference with immediate Drive persistence;
-- one retry for missing detections at `bbox_thr=20`;
-- raw and consolidated SMPL-X motion, automated rotation-jump QA, and comparison videos;
-- direct neutral SMPL-X avatar rendering without cross-rig retargeting;
-- a blind three-reviewer recognition and quality gate.
+Custom avatars, Malay-to-BIM translation, word sequencing, frontend work, training, and full-dataset batching are outside this hackathon pilot.
 
-Not included: a custom avatar, Malay-to-BIM translation, word sequencing, hand-model fusion, frontend work, training, or full-dataset batching.
+## Private Google Drive setup
 
-## Private Drive setup
-
-Use one Google account. Create this layout without changing the filenames:
+Use one Google account and keep this exact layout:
 
 ```text
 MyDrive/BIM-Avatar/
@@ -30,56 +28,71 @@ MyDrive/BIM-Avatar/
 │   └── Suhu.mp4
 ├── models/
 │   ├── smplerx/
-│   │   ├── smpler_x_h32.pth.tar        # notebook downloads and verifies
-│   │   └── smpler_x_l32.pth.tar        # optional OOM fallback
+│   │   ├── smpler_x_h32.pth.tar
+│   │   └── smpler_x_l32.pth.tar       # optional OOM fallback
 │   ├── mmdet/
-│   │   ├── faster_rcnn_r50_fpn_1x_coco_20200130-047c8118.pth  # automatic
-│   │   └── mmdet_faster_rcnn_r50_fpn_coco.py                  # automatic
-│   └── smplx/
-│       ├── MANO_SMPLX_vertex_ids.pkl
-│       ├── SMPL-X__FLAME_vertex_ids.npy
-│       ├── SMPLX_NEUTRAL.pkl
-│       ├── SMPLX_to_J14.pkl
-│       ├── SMPLX_NEUTRAL.npz
-│       ├── SMPLX_MALE.npz
-│       ├── SMPLX_FEMALE.npz
-│       └── smpl/
-│           ├── SMPL_NEUTRAL.pkl
-│           ├── SMPL_MALE.pkl
-│           └── SMPL_FEMALE.pkl
-├── runs/SUHU/                         # notebook creates this
-└── reviews/                           # notebook creates this
+│   │   ├── faster_rcnn_r50_fpn_1x_coco_20200130-047c8118.pth
+│   │   └── mmdet_faster_rcnn_r50_fpn_coco.py
+│   ├── smplx/
+│   │   ├── MANO_SMPLX_vertex_ids.pkl
+│   │   ├── SMPL-X__FLAME_vertex_ids.npy
+│   │   ├── SMPLX_NEUTRAL.pkl
+│   │   ├── SMPLX_to_J14.pkl
+│   │   ├── SMPLX_NEUTRAL.npz
+│   │   ├── SMPLX_MALE.npz
+│   │   ├── SMPLX_FEMALE.npz
+│   │   └── smpl/
+│   │       ├── SMPL_NEUTRAL.pkl
+│   │       ├── SMPL_MALE.pkl
+│   │       └── SMPL_FEMALE.pkl
+│   ├── mano/
+│   │   └── MANO_RIGHT.pkl             # private; upload manually
+│   └── hamer/                          # notebook fills from official archive
+│       ├── hamer.ckpt
+│       ├── model_config.yaml
+│       └── mano_mean_params.npz
+├── runs/SUHU/                          # notebook creates this
+└── reviews/                            # notebook creates this
 ```
 
-Obtain the files from their official sources:
+Only `MANO_RIGHT.pkl` is required. HaMeR mirrors left-hand crops and the pilot converts the resulting left-hand rotations back into the SMPL-X coordinate system.
 
-- [SMPLer-X model and setup instructions](https://github.com/caizhongang/SMPLer-X/tree/064baef0e4ab5277a3297691bc1d46ea5412586f)
+Obtain restricted files only from their official sources:
+
+- [SMPLer-X setup and checkpoint instructions](https://github.com/caizhongang/SMPLer-X/tree/064baef0e4ab5277a3297691bc1d46ea5412586f)
 - [SMPL-X registration and downloads](https://smpl-x.is.tue.mpg.de/)
 - [SMPL registration and downloads](https://smpl.is.tue.mpg.de/)
-- [MMDetection Faster R-CNN checkpoint](https://download.openmmlab.com/mmdetection/v2.0/faster_rcnn/faster_rcnn_r50_fpn_1x_coco/faster_rcnn_r50_fpn_1x_coco_20200130-047c8118.pth)
-- [Inference detector configuration](https://github.com/openxrlab/xrmocap/blob/main/configs/modules/human_perception/mmdet_faster_rcnn_r50_fpn_coco.py)
+- [MANO registration and downloads](https://mano.is.tue.mpg.de/)
 
-Models, videos, parameters, extracted frames, and generated media are ignored by Git. Do not override those exclusions or redistribute private assets.
+The notebook downloads public SMPLer-X, MMDetection, and HaMeR assets. The HaMeR setup temporarily downloads the official 6.04 GB demo archive, extracts only the three required public files into Drive, then removes the temporary archive. Interrupted downloads resume automatically.
 
-The notebook downloads H32 (7.94 GB) and the two public MMDetection files directly into Drive using pinned official URLs. Interrupted downloads resume, and exact file size plus SHA-256 must pass before inference. Make sure the connected Drive has enough free storage. SMPL-X, SMPL, and the optional L32 fallback remain manual because they are restricted or selected only after the H32 resource test.
+Never commit or redistribute videos, model files, checkpoints, extracted frames, predictions, or generated media.
 
-## Run the pilot
+## Run in Colab
 
-1. Merge or push this implementation so Colab can clone it. If it is not on `main`, change `PILOT_REPO_REF` in the notebook settings cell to the pushed branch name.
-2. Open the notebook in Colab and select a **T4 GPU** runtime.
-3. Run cells in order. The preflight requires at least 14 GiB free VRAM, 10 GiB available system RAM, and 20 GiB temporary disk.
-4. Let the notebook build the isolated Python 3.8 / PyTorch 1.12 / CUDA 11.3 environment and download the verified public checkpoints. The first setup is slow; interrupted H32 downloads resume from the bytes already stored in Drive.
-5. Upload the personally licensed SMPL-X and SMPL files listed above, then inspect the frame-38 overlay. If H32 reports CUDA out-of-memory, restart the runtime, change `MODEL_NAME` to `smpler_x_l32`, provide its checkpoint, and rerun from the private-assets cell. Do not modify mixed precision for this pilot.
-6. Run full inference. Disconnects are recoverable: completed artifacts have already been copied to Drive and the next runtime starts at the first unfinished frame.
-7. Resolve any flagged motion frame against the source. The notebook never smooths or interpolates hands automatically.
-8. Inspect the source, overlay, and avatar videos at normal and half speed.
-9. Give only `reviews/SUHU_blind_review.mp4` to each reviewer. Do not show the intended gloss or source filename. Fill `reviews/SUHU_review.csv` and rerun the review cell.
+1. Push this repository to `main`, open the notebook in Colab, and select a **T4 GPU** runtime.
+2. Upload `MANO_RIGHT.pkl` to `MyDrive/BIM-Avatar/models/mano/` before running Cell 7.
+3. Run Cells 1–14 in order. Two isolated environments are created:
+   - SMPLer-X: Python 3.8, PyTorch 1.12, CUDA 11.3 packages.
+   - HaMeR: Python 3.10, PyTorch 2.0.0, torchvision 0.15.1, CUDA 11.7 wheels.
+4. In Cell 15, inspect all five preview frames. Compare the source, SMPLer-X overlay, original avatar, both HaMeR hand overlays, and refined avatar. Continue only by typing `HAND_REFINEMENT_CLEARED` exactly.
+5. Run Cell 16. It copies the approved preview predictions into the full run, skips valid files already in Drive, and resumes missing left/right hands after a disconnect.
+6. Run Cell 17 and inspect the refined three-way video before typing `AVATAR_CLEARED`.
+7. Give only `reviews/SUHU_blind_review.mp4` to each BIM reviewer. Do not reveal the gloss or source filename. Complete `reviews/SUHU_review.csv`, then rerun Cell 18.
 
-Do not rotate Google accounts to bypass Colab limits, and do not run this workload on the company GPU hosting eKYC/OCR services.
+Do not rotate Google accounts to bypass Colab limits. Do not run this workload on the company GPU hosting eKYC/OCR services. If the pinned environment cannot be stabilized within one engineering day, use the upstream image on a separate GPU VM.
 
-If the pinned Python environment cannot be made stable in Colab within one engineering day, stop changing package versions and use the upstream inference Docker image on a separate GPU VM. This is a fallback, not a reason to move the workload onto the production server.
+## Resumption and failure handling
 
-## Persistent outputs
+- SMPLer-X progress is stored in `runs/SUHU/progress.json`.
+- HaMeR progress is stored separately in `hands/preview/progress.json` and `hands/full/progress.json`.
+- A hand side is complete only when its NPZ has valid finite rotation matrices and matching frame/hand metadata.
+- Corrupt or missing hand files are rerun; successful files are skipped.
+- Full hand refinement cannot start without `hands/preview/cleared.json`.
+- Missing hand predictions are never silently filled.
+- Review flagged hand jumps against the source before accepting the avatar.
+
+## Main outputs
 
 ```text
 runs/SUHU/
@@ -89,70 +102,62 @@ runs/SUHU/
 ├── smplx/
 ├── meta/
 ├── overlays/
+├── hands/
+│   ├── preview/
+│   │   ├── cleared.json
+│   │   ├── progress.json
+│   │   └── suhu_hand_refinement_preview.mp4
+│   └── full/
+│       ├── mano/
+│       └── progress.json
 ├── motion/
 │   ├── suhu_motion_raw.npz
-│   └── suhu_motion.npz
+│   ├── suhu_motion.npz
+│   ├── suhu_motion_hand_preview.npz
+│   └── suhu_motion_hand_refined.npz
 ├── qa/
 │   ├── suhu_motion_qa.json
+│   ├── hand_refinement.json
 │   └── suhu_review_result.json
-├── avatar/
-│   ├── suhu_avatar.mp4
-│   └── suhu_three_way_comparison.mp4
-├── suhu_original_30fps.mp4
-├── suhu_smplerx_overlay.mp4
-└── suhu_source_vs_smplx.mp4
+└── avatar/
+    ├── suhu_avatar_hand_refined.mp4
+    └── suhu_three_way_hand_refined_comparison.mp4
 ```
 
-`suhu_motion.npz` contains:
-
-```text
-fps                 scalar
-global_orient       [N, 3]
-body_pose           [N, 21, 3]
-left_hand_pose      [N, 15, 3]
-right_hand_pose     [N, 15, 3]
-jaw_pose            [N, 3]
-left_eye_pose       [N, 3]
-right_eye_pose      [N, 3]
-betas               [N, 10]
-expression          [N, 10]
-translation         [N, 3]
-valid_frame_mask    [N]
-source_frame_number [N]
-```
-
-The clean motion changes only `betas`, replacing per-frame values with their temporal median to prevent body-shape flicker. Body and hand motion are not smoothed.
+`suhu_motion_hand_refined.npz` retains the consolidated SMPL-X schema. Only the two `[N, 15, 3]` hand-pose arrays differ from `suhu_motion.npz`.
 
 ## Acceptance gate
 
-The pilot passes only when all three BIM-fluent reviewers independently identify `SUHU`, every category average is at least 1.5/2, and no category receives zero from two or more reviewers. Categories are handshape, palm/finger orientation, location, movement, and non-manual cues.
+The pilot passes only when all three BIM-fluent reviewers independently identify `SUHU`, every category averages at least 1.5/2, and no category receives zero from two or more reviewers. The categories are handshape, palm/finger orientation, location, movement, and non-manual cues.
 
 Failure routing:
 
-- source overlay wrong → reconstruction/model issue;
-- overlay correct but avatar wrong → playback/rendering issue;
-- fingers wrong while body is correct → consider a later hand-refinement stage;
-- engineering review passes but BIM review fails → linguistic failure; do not scale.
+- Source overlay wrong → SMPLer-X reconstruction issue.
+- HaMeR hand overlay wrong → hand crop/model issue.
+- Hand overlay correct but refined avatar wrong → conversion or rendering issue.
+- Engineering review passes but BIM review fails → linguistic failure; do not scale.
 
-After SUHU passes, run the same full-body pipeline on `Makan`, `Rumah`, `Doa`, `Jurukamera`, `Taman Negara Endau-Rompin`, `Ais`, `Wang tunai`, and `Balik ke rumah`. Route `1` and `A` to a separate hand-only reconstruction experiment. Do not process all 2,811 clips before this canary succeeds.
+After SUHU passes, run the defined canary set. Do not process all 2,811 clips until the full-body canary passes BIM review and the hand-only alphabet/number route is defined.
 
 ## Licences and attribution
 
-A hackathon exemption does not remove licence obligations. Confirm that the event and public demonstration are genuinely non-commercial and that the person accepting each model licence is permitted to do so for the team or company.
+A hackathon exemption does not remove licence obligations. Confirm non-commercial eligibility and permission for the BIM videos and signer appearance.
 
-- SMPLer-X uses the [S-Lab License 1.0](https://github.com/caizhongang/SMPLer-X/blob/064baef0e4ab5277a3297691bc1d46ea5412586f/LICENSE), which permits non-commercial use subject to its conditions and requires contact for commercial use.
-- SMPL-X and SMPL model files are restricted assets. Review and accept the current [SMPL-X model licence](https://smpl-x.is.tue.mpg.de/modellicense.html); it allows specified non-commercial uses, is single-user/non-transferable, and prohibits sharing the model files with third parties.
-- MMDetection 2.26.0 is [Apache-2.0 licensed](https://github.com/open-mmlab/mmdetection/blob/v2.26.0/LICENSE). Check the separate terms and provenance of every downloaded checkpoint.
-- Obtain written permission for the BIM video and signer appearance. Credit the BIM source, SMPLer-X paper, and SMPL-X paper in the hackathon README and presentation.
+- [SMPLer-X S-Lab License 1.0](https://github.com/caizhongang/SMPLer-X/blob/064baef0e4ab5277a3297691bc1d46ea5412586f/LICENSE)
+- [HaMeR MIT licence](https://github.com/geopavlakos/hamer/blob/3a01849f4148352e9260b69bf28b65d1671a4905/LICENSE.md) and [CVPR 2024 paper](https://arxiv.org/abs/2312.05251)
+- [Mano2Smpl-X MIT licence](https://github.com/VincentHu19/Mano2Smpl-X/blob/901c124b9163294449b44821a642ae8e99d41cb0/LICENSE)
+- [SMPL-X model licence](https://smpl-x.is.tue.mpg.de/modellicense.html) and the separately accepted MANO/SMPL terms
+- [MMDetection Apache-2.0 licence](https://github.com/open-mmlab/mmdetection/blob/v2.26.0/LICENSE)
 
-This section is an engineering checklist, not legal advice. Recheck the linked terms before the demonstration because licences can change.
+Keep the copyright notices and credit the BIM source, SMPLer-X, SMPL-X, MANO, HaMeR, and Mano2Smpl-X in the hackathon presentation. This is an engineering checklist, not legal advice.
 
-## Local checks
+## Local verification
 
-The lightweight logic tests do not need a GPU:
+The lightweight checks do not need a GPU or private models:
 
 ```powershell
 python -m unittest discover -s tests -v
+python -m py_compile suhu_pilot.py hamer_refinement.py render_smplx.py
 ```
 
-They cover source validation, resume state, upstream parameter schema, shape stabilization, rotation-jump QA, notebook structure, and the blind-review rubric. Full model and visual acceptance must be run in Colab with the private assets.
+Full model inference and visual acceptance must be performed in Colab.
