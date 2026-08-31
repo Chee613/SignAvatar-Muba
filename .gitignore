@@ -1,6 +1,7 @@
 __pycache__/
 *.py[cod]
 .ipynb_checkpoints/
+.worktrees/
 
 # Private source material and generated runs
 Video_WordOnly/
