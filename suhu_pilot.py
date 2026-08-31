@@ -68,8 +68,8 @@ def load_config(path):
         or len(set(preview_frames)) != len(preview_frames)
     ):
         raise ValueError("hand_refinement.preview_frames must contain unique positive integers")
-    if hand_refinement.get("method") != "mediapipe":
-        raise ValueError("hand_refinement.method must be mediapipe")
+    if hand_refinement.get("method") != "mediapipe_smplx_optimization":
+        raise ValueError("hand_refinement.method must be mediapipe_smplx_optimization")
     if not isinstance(hand_refinement.get("input_mirrored"), bool):
         raise ValueError("hand_refinement.input_mirrored must be boolean")
     for key in ("minimum_detection_confidence", "minimum_tracking_confidence"):
@@ -79,6 +79,16 @@ def load_config(path):
     maximum_degrees = hand_refinement.get("maximum_joint_degrees")
     if not isinstance(maximum_degrees, (int, float)) or not 0.0 < maximum_degrees <= 180.0:
         raise ValueError("hand_refinement.maximum_joint_degrees must be greater than 0 and at most 180")
+    steps = hand_refinement.get("optimization_steps")
+    if not isinstance(steps, int) or steps <= 0:
+        raise ValueError("hand_refinement.optimization_steps must be a positive integer")
+    learning_rate = hand_refinement.get("learning_rate")
+    if not isinstance(learning_rate, (int, float)) or learning_rate <= 0:
+        raise ValueError("hand_refinement.learning_rate must be positive")
+    for key in ("initial_pose_weight", "temporal_weight", "wrist_weight"):
+        value = hand_refinement.get(key)
+        if not isinstance(value, (int, float)) or value < 0:
+            raise ValueError(f"hand_refinement.{key} must be non-negative")
     return config
 
 

@@ -58,11 +58,16 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config["expected_source_frames"], 146)
         self.assertEqual(config["reviewer_count"], 3)
         self.assertEqual(config["hand_refinement"]["preview_frames"], [16, 25, 38, 55, 73])
-        self.assertEqual(config["hand_refinement"]["method"], "mediapipe")
+        self.assertEqual(config["hand_refinement"]["method"], "mediapipe_smplx_optimization")
         self.assertIs(config["hand_refinement"]["input_mirrored"], False)
         self.assertEqual(config["hand_refinement"]["minimum_detection_confidence"], 0.5)
         self.assertEqual(config["hand_refinement"]["minimum_tracking_confidence"], 0.5)
-        self.assertEqual(config["hand_refinement"]["maximum_joint_degrees"], 150)
+        self.assertEqual(config["hand_refinement"]["maximum_joint_degrees"], 120)
+        self.assertEqual(config["hand_refinement"]["optimization_steps"], 600)
+        self.assertEqual(config["hand_refinement"]["learning_rate"], 0.01)
+        self.assertEqual(config["hand_refinement"]["initial_pose_weight"], 0.02)
+        self.assertEqual(config["hand_refinement"]["temporal_weight"], 0.05)
+        self.assertEqual(config["hand_refinement"]["wrist_weight"], 0.1)
 
     def test_hand_confidence_must_be_a_probability(self):
         from suhu_pilot import load_config
@@ -70,7 +75,7 @@ class ConfigTests(unittest.TestCase):
         config_path = Path(__file__).parents[1] / "config/suhu_pilot.json"
         config = json.loads(config_path.read_text(encoding="utf-8"))
         config["hand_refinement"].update(
-            method="mediapipe",
+            method="mediapipe_smplx_optimization",
             minimum_detection_confidence=1.1,
             minimum_tracking_confidence=0.5,
             maximum_joint_degrees=150,
@@ -79,6 +84,18 @@ class ConfigTests(unittest.TestCase):
             path = Path(directory) / "config.json"
             path.write_text(json.dumps(config), encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "minimum_detection_confidence"):
+                load_config(path)
+
+    def test_hand_optimizer_requires_positive_steps(self):
+        from suhu_pilot import load_config
+
+        config_path = Path(__file__).parents[1] / "config/suhu_pilot.json"
+        config = json.loads(config_path.read_text(encoding="utf-8"))
+        config["hand_refinement"]["optimization_steps"] = 0
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "config.json"
+            path.write_text(json.dumps(config), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "optimization_steps"):
                 load_config(path)
 
     def test_source_probe_must_match_config(self):
@@ -524,21 +541,27 @@ class NotebookTests(unittest.TestCase):
         self.assertIn("'detect'", preview)
         self.assertIn("'fit'", preview)
         self.assertIn("input_mirrored", preview)
+        self.assertIn("'--meta-dir'", preview)
+        self.assertIn("'--optimization-steps'", preview)
+        self.assertIn("'--temporal-weight'", preview)
         self.assertIn("render_smplx.py", preview)
         self.assertIn("HAND_REFINEMENT_CLEARED", preview)
+        self.assertNotIn("--flat-hand-mean", preview)
 
         full = "".join(cells["hand-full-refinement"]["source"])
         self.assertIn("cleared.json", full)
         self.assertIn("mediapipe_refinement.py", full)
         self.assertIn("'detect'", full)
         self.assertIn("'fit'", full)
+        self.assertIn("'--meta-dir'", full)
+        self.assertIn("'--optimization-steps'", full)
         self.assertIn("suhu_motion_hand_refined.npz", full)
         self.assertNotIn("interpolate", full.lower())
-        self.assertNotIn("smooth", full.lower())
+        self.assertIn("optimization.json", full)
 
         avatar = "".join(cells["avatar-render"]["source"])
         self.assertIn("suhu_motion_hand_refined.npz", avatar)
-        self.assertIn("--flat-hand-mean", avatar)
+        self.assertNotIn("--flat-hand-mean", avatar)
 
 
 if __name__ == "__main__":

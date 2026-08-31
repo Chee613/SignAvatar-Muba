@@ -1,6 +1,6 @@
 # SUHU BIM avatar pilot
 
-This repository implements the one-word hackathon gate for **SUHU**. It reconstructs the signer with SMPLer-X-H32, refines both finger poses with MediaPipe Hand Landmarker, renders a neutral SMPL-X avatar, and requires three BIM-fluent reviewers to recognize the sign before any vocabulary expansion.
+This repository implements the one-word hackathon gate for **SUHU**. It reconstructs the signer with SMPLer-X-H32, then fits its SMPL-X hands and wrists over the complete clip using MediaPipe 2D observations, temporal regularization, and joint limits. Three BIM-fluent reviewers must recognize the rendered sign before any vocabulary expansion.
 
 The guided workflow is [notebooks/suhu_pilot_colab.ipynb](notebooks/suhu_pilot_colab.ipynb). It targets a free Google Colab Tesla T4, persists every completed prediction in private Google Drive, and performs pretrained inference only—there is no training or fine-tuning.
 
@@ -11,8 +11,8 @@ The guided workflow is [notebooks/suhu_pilot_colab.ipynb](notebooks/suhu_pilot_c
 - Validates the original 1280×720, 50 FPS, 146-frame H.264 clip.
 - Produces a 30 FPS derivative, resumable SMPLer-X outputs, QA, and comparison videos.
 - Runs MediaPipe on preview frames `16, 25, 38, 55, 73` before the full clip.
-- Replaces only `left_hand_pose` and `right_hand_pose`; body, wrists, timing, face, shape, and translation remain from SMPLer-X.
-- Renders refined hands with `use_pca=False` and `flat_hand_mean=True`.
+- Optimizes `left_hand_pose`, `right_hand_pose`, and the two wrist rotations while preserving the remaining body, timing, face, shape, and translation from SMPLer-X.
+- Fits the actual SMPL-X model against confidence-weighted 2D landmarks instead of directly converting MediaPipe's estimated depth into joint rotations.
 - Stops before the full vocabulary unless the blind BIM review passes.
 
 Custom avatars, Malay-to-BIM translation, word sequencing, frontend work, training, and full-dataset batching are outside this hackathon pilot.
@@ -50,7 +50,7 @@ MyDrive/BIM-Avatar/
 └── reviews/                            # notebook creates this
 ```
 
-No separate MANO or HaMeR download is required. MediaPipe detects 21 landmarks for each hand; the pilot aligns them to a neutral SMPL-X hand and derives the 15 local finger rotations for each side.
+No separate MANO or HaMeR download is required. MediaPipe detects 21 landmarks for each hand; the T4 then optimizes the SMPL-X hand and wrist parameters so their projected joints align with those observations while remaining close to the original motion.
 
 Obtain restricted files only from their official sources:
 
@@ -83,6 +83,7 @@ Do not rotate Google accounts to bypass Colab limits. Do not run this workload o
 - MediaPipe progress is stored separately in `hands/preview/progress.json` and `hands/full/progress.json`.
 - A hand side is complete only when its NPZ has valid finite 21-point image/world landmarks and matching frame/side metadata.
 - Corrupt or missing hand files are rerun; successful files are skipped.
+- Sequence-fitting diagnostics are stored in `hands/preview/optimization.json` and `hands/full/optimization.json`.
 - Full hand refinement cannot start without `hands/preview/cleared.json`.
 - Missing hand predictions are never silently filled.
 - Review flagged hand jumps against the source before accepting the avatar.
@@ -129,7 +130,7 @@ Failure routing:
 
 - Source overlay wrong → SMPLer-X reconstruction issue.
 - MediaPipe hand overlay wrong → landmark detection or handedness issue.
-- Hand overlay correct but refined avatar wrong → conversion or rendering issue.
+- Hand overlay correct but refined avatar wrong → adjust the optimization weights or inspect camera projection.
 - Engineering review passes but BIM review fails → linguistic failure; do not scale.
 
 After SUHU passes, run the defined canary set. Do not process all 2,811 clips until the full-body canary passes BIM review and the hand-only alphabet/number route is defined.
