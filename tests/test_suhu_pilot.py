@@ -228,6 +228,15 @@ class ReviewTests(unittest.TestCase):
 
 
 class NotebookTests(unittest.TestCase):
+    def test_colab_environment_pins_mkl_and_repairs_existing_environment(self):
+        notebook_path = Path(__file__).parents[1] / "notebooks/suhu_pilot_colab.ipynb"
+        notebook = json.loads(notebook_path.read_text(encoding="utf-8"))
+        cells = {cell["id"]: cell for cell in notebook["cells"]}
+        environment_source = "".join(cells["environment"]["source"])
+
+        self.assertGreaterEqual(environment_source.count("'mkl=2024.0'"), 2)
+        self.assertIn("install_marker.read_text", environment_source)
+
     def test_colab_notebook_is_complete_and_python_cells_compile(self):
         notebook_path = Path(__file__).parents[1] / "notebooks/suhu_pilot_colab.ipynb"
         notebook = json.loads(notebook_path.read_text(encoding="utf-8"))
