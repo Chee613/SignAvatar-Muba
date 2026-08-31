@@ -442,6 +442,9 @@ class NotebookTests(unittest.TestCase):
             "missing-policy",
             "consolidate-qa",
             "comparison-renders",
+            "hamer-setup",
+            "hand-preview",
+            "hand-full-refinement",
             "avatar-render",
             "blind-review",
         }
@@ -462,6 +465,42 @@ class NotebookTests(unittest.TestCase):
             self.assertNotIn("TBD", source)
             if cell["cell_type"] == "code":
                 compile(source, cell["id"], "exec")
+
+    def test_colab_gates_two_hand_refinement_before_final_render(self):
+        notebook_path = Path(__file__).parents[1] / "notebooks/suhu_pilot_colab.ipynb"
+        notebook = json.loads(notebook_path.read_text(encoding="utf-8"))
+        cells = {cell["id"]: cell for cell in notebook["cells"]}
+        order = list(cells)
+
+        self.assertLess(order.index("hamer-setup"), order.index("hand-preview"))
+        self.assertLess(order.index("hand-preview"), order.index("hand-full-refinement"))
+        self.assertLess(order.index("hand-full-refinement"), order.index("avatar-render"))
+
+        setup = "".join(cells["hamer-setup"]["source"])
+        self.assertIn("3a01849f4148352e9260b69bf28b65d1671a4905", setup)
+        self.assertIn("Python 3.10", setup)
+        self.assertIn("torch==2.0.0", setup)
+        self.assertIn("torchvision==0.15.1", setup)
+        self.assertIn("models/mano/MANO_RIGHT.pkl", setup)
+        self.assertIn("https://www.cs.utexas.edu/~pavlakos/hamer/data/hamer_demo_data.tar.gz", setup)
+
+        preview = "".join(cells["hand-preview"]["source"])
+        for frame in (16, 25, 38, 55, 73):
+            self.assertIn(str(frame), preview)
+        self.assertIn("hamer_refinement.py", preview)
+        self.assertIn("render_smplx.py", preview)
+        self.assertIn("HAND_REFINEMENT_CLEARED", preview)
+
+        full = "".join(cells["hand-full-refinement"]["source"])
+        self.assertIn("cleared.json", full)
+        self.assertIn("hamer_refinement.py", full)
+        self.assertIn("suhu_motion_hand_refined.npz", full)
+        self.assertNotIn("interpolate", full.lower())
+        self.assertNotIn("smooth", full.lower())
+
+        avatar = "".join(cells["avatar-render"]["source"])
+        self.assertIn("suhu_motion_hand_refined.npz", avatar)
+        self.assertIn("--flat-hand-mean", avatar)
 
 
 if __name__ == "__main__":
