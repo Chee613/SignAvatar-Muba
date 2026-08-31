@@ -294,13 +294,16 @@ def _fit(args):
             if path.is_file():
                 error = _landmark_error(path, frame, side)
                 if error:
-                    raise ValueError(f"{path}: {error}")
-                with np.load(path) as values:
-                    predictions[frame][side] = landmarks_to_hand_pose(
-                        values["world_landmarks"],
-                        references[side],
-                        maximum_joint_degrees=args.maximum_joint_degrees,
-                    )
+                    continue
+                try:
+                    with np.load(path) as values:
+                        predictions[frame][side] = landmarks_to_hand_pose(
+                            values["world_landmarks"],
+                            references[side],
+                            maximum_joint_degrees=args.maximum_joint_degrees,
+                        )
+                except Exception as exc:
+                    print(f"Notice: frame {frame} {side} skipped ({exc}); baseline SMPLer-X pose preserved.")
     refined = fuse_hand_poses(motion, predictions, required_frames=args.frames)
     _write_npz(args.output_motion, **refined)
 
