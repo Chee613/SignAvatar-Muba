@@ -496,6 +496,13 @@ class NotebookTests(unittest.TestCase):
         self.assertIn("Python 3.10", setup)
         self.assertIn("torch==2.0.0", setup)
         self.assertIn("torchvision==0.15.1", setup)
+        self.assertIn("pip==24.0", setup)
+        self.assertIn("minimal-no-detectors=v2", setup)
+        self.assertIn("PyOpenGL==3.1.7", setup)
+        self.assertIn("'--no-deps', 'pyrender==0.1.45'", setup)
+        self.assertIn("'--no-build-isolation', '--no-use-pep517', 'chumpy==0.70'", setup)
+        self.assertIn("'--no-build-isolation', 'chumpy==0.70'", setup)
+        self.assertIn("hamer_install.log", setup)
         self.assertIn("models/mano/MANO_RIGHT.pkl", setup)
         self.assertIn("https://www.cs.utexas.edu/~pavlakos/hamer/data/hamer_demo_data.tar.gz", setup)
 
