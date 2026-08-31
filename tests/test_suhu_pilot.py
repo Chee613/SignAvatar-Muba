@@ -1,4 +1,6 @@
 import json
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -256,6 +258,53 @@ class HandRefinementTests(unittest.TestCase):
         rotations[0, 0, 0] = np.nan
         with self.assertRaisesRegex(ValueError, "finite"):
             mano_hand_pose_to_axis_angle(rotations, is_right=True)
+
+
+class RendererCommandTests(unittest.TestCase):
+    def test_help_exposes_preview_and_flat_hand_options_without_render_dependencies(self):
+        script = Path(__file__).parents[1] / "render_smplx.py"
+
+        result = subprocess.run(
+            [sys.executable, str(script), "--help"],
+            text=True,
+            capture_output=True,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for option in (
+            "--motion",
+            "--model-root",
+            "--meta-dir",
+            "--output-dir",
+            "--frames",
+            "--flat-hand-mean",
+        ):
+            self.assertIn(option, result.stdout)
+
+    def test_renderer_rejects_duplicate_frame_numbers_before_loading_dependencies(self):
+        script = Path(__file__).parents[1] / "render_smplx.py"
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(script),
+                "--motion",
+                "missing.npz",
+                "--model-root",
+                "missing-models",
+                "--meta-dir",
+                "missing-meta",
+                "--output-dir",
+                "output",
+                "--frames",
+                "1,1",
+            ],
+            text=True,
+            capture_output=True,
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("unique positive integers", result.stderr)
 
 
 class ReviewTests(unittest.TestCase):
