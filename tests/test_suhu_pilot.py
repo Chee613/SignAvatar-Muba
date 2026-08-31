@@ -228,6 +228,15 @@ class ReviewTests(unittest.TestCase):
 
 
 class NotebookTests(unittest.TestCase):
+    def test_colab_anchors_upstream_inference_working_directory(self):
+        notebook_path = Path(__file__).parents[1] / "notebooks/suhu_pilot_colab.ipynb"
+        notebook = json.loads(notebook_path.read_text(encoding="utf-8"))
+        cells = {cell["id"]: cell for cell in notebook["cells"]}
+        environment_source = "".join(cells["environment"]["source"])
+
+        self.assertIn("inference_script = SMPLERX_DIR / 'main/inference.py'", environment_source)
+        self.assertIn("os.chdir(osp.dirname(osp.abspath(__file__)))", environment_source)
+
     def test_colab_environment_pins_mkl_and_repairs_existing_environment(self):
         notebook_path = Path(__file__).parents[1] / "notebooks/suhu_pilot_colab.ipynb"
         notebook = json.loads(notebook_path.read_text(encoding="utf-8"))
