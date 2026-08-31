@@ -228,6 +228,30 @@ class ReviewTests(unittest.TestCase):
 
 
 class NotebookTests(unittest.TestCase):
+    def test_code_cells_have_visible_numbered_labels(self):
+        notebook_path = Path(__file__).parents[1] / "notebooks/suhu_pilot_colab.ipynb"
+        notebook = json.loads(notebook_path.read_text(encoding="utf-8"))
+        code_cells = [cell for cell in notebook["cells"] if cell["cell_type"] == "code"]
+
+        for number, cell in enumerate(code_cells, start=1):
+            source = "".join(cell["source"])
+            self.assertTrue(
+                source.startswith(f"# Cell {number} — "),
+                f'{cell["id"]} is missing its visible cell label',
+            )
+
+    def test_avatar_render_uses_model_root_and_persists_subprocess_errors(self):
+        notebook_path = Path(__file__).parents[1] / "notebooks/suhu_pilot_colab.ipynb"
+        notebook = json.loads(notebook_path.read_text(encoding="utf-8"))
+        cells = {cell["id"]: cell for cell in notebook["cells"]}
+        avatar_source = "".join(cells["avatar-render"]["source"])
+
+        self.assertIn("SMPLERX_DIR / 'common/utils/human_model_files'", avatar_source)
+        self.assertNotIn("SMPLERX_DIR / 'common/utils/human_model_files/smplx'", avatar_source)
+        self.assertIn("capture_output=True", avatar_source)
+        self.assertIn("avatar_render.log", avatar_source)
+        self.assertIn("avatar_result.stderr", avatar_source)
+
     def test_colab_repairs_torchgeometry_boolean_mask_operations(self):
         notebook_path = Path(__file__).parents[1] / "notebooks/suhu_pilot_colab.ipynb"
         notebook = json.loads(notebook_path.read_text(encoding="utf-8"))
