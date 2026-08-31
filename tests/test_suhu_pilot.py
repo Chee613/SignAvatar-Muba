@@ -58,8 +58,28 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config["expected_source_frames"], 146)
         self.assertEqual(config["reviewer_count"], 3)
         self.assertEqual(config["hand_refinement"]["preview_frames"], [16, 25, 38, 55, 73])
-        self.assertEqual(config["hand_refinement"]["box_padding"], 2.0)
-        self.assertEqual(config["hand_refinement"]["minimum_box_size"], 32)
+        self.assertEqual(config["hand_refinement"]["method"], "mediapipe")
+        self.assertIs(config["hand_refinement"]["input_mirrored"], False)
+        self.assertEqual(config["hand_refinement"]["minimum_detection_confidence"], 0.5)
+        self.assertEqual(config["hand_refinement"]["minimum_tracking_confidence"], 0.5)
+        self.assertEqual(config["hand_refinement"]["maximum_joint_degrees"], 150)
+
+    def test_hand_confidence_must_be_a_probability(self):
+        from suhu_pilot import load_config
+
+        config_path = Path(__file__).parents[1] / "config/suhu_pilot.json"
+        config = json.loads(config_path.read_text(encoding="utf-8"))
+        config["hand_refinement"].update(
+            method="mediapipe",
+            minimum_detection_confidence=1.1,
+            minimum_tracking_confidence=0.5,
+            maximum_joint_degrees=150,
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "config.json"
+            path.write_text(json.dumps(config), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "minimum_detection_confidence"):
+                load_config(path)
 
     def test_source_probe_must_match_config(self):
         from suhu_pilot import validate_source_probe
@@ -456,7 +476,7 @@ class NotebookTests(unittest.TestCase):
             "missing-policy",
             "consolidate-qa",
             "comparison-renders",
-            "hamer-setup",
+            "mediapipe-setup",
             "hand-preview",
             "hand-full-refinement",
             "avatar-render",
@@ -486,36 +506,32 @@ class NotebookTests(unittest.TestCase):
         cells = {cell["id"]: cell for cell in notebook["cells"]}
         order = list(cells)
 
-        self.assertLess(order.index("hamer-setup"), order.index("hand-preview"))
+        self.assertLess(order.index("mediapipe-setup"), order.index("hand-preview"))
         self.assertLess(order.index("hand-preview"), order.index("hand-full-refinement"))
         self.assertLess(order.index("hand-full-refinement"), order.index("avatar-render"))
 
-        setup = "".join(cells["hamer-setup"]["source"])
-        self.assertIn("3a01849f4148352e9260b69bf28b65d1671a4905", setup)
-        self.assertIn("901c124b9163294449b44821a642ae8e99d41cb0", setup)
+        setup = "".join(cells["mediapipe-setup"]["source"])
         self.assertIn("Python 3.10", setup)
-        self.assertIn("torch==2.0.0", setup)
-        self.assertIn("torchvision==0.15.1", setup)
-        self.assertIn("pip==24.0", setup)
-        self.assertIn("minimal-no-detectors=v2", setup)
-        self.assertIn("PyOpenGL==3.1.7", setup)
-        self.assertIn("'--no-deps', 'pyrender==0.1.45'", setup)
-        self.assertIn("'--no-build-isolation', '--no-use-pep517', 'chumpy==0.70'", setup)
-        self.assertIn("'--no-build-isolation', 'chumpy==0.70'", setup)
-        self.assertIn("hamer_install.log", setup)
-        self.assertIn("models/mano/MANO_RIGHT.pkl", setup)
-        self.assertIn("https://www.cs.utexas.edu/~pavlakos/hamer/data/hamer_demo_data.tar.gz", setup)
+        self.assertIn("mediapipe==1.0.1", setup)
+        self.assertIn("hand_landmarker.task", setup)
+        self.assertNotIn("HaMeR", setup)
+        self.assertNotIn("MANO_RIGHT.pkl", setup)
 
         preview = "".join(cells["hand-preview"]["source"])
         for frame in (16, 25, 38, 55, 73):
             self.assertIn(str(frame), preview)
-        self.assertIn("hamer_refinement.py", preview)
+        self.assertIn("mediapipe_refinement.py", preview)
+        self.assertIn("'detect'", preview)
+        self.assertIn("'fit'", preview)
+        self.assertIn("input_mirrored", preview)
         self.assertIn("render_smplx.py", preview)
         self.assertIn("HAND_REFINEMENT_CLEARED", preview)
 
         full = "".join(cells["hand-full-refinement"]["source"])
         self.assertIn("cleared.json", full)
-        self.assertIn("hamer_refinement.py", full)
+        self.assertIn("mediapipe_refinement.py", full)
+        self.assertIn("'detect'", full)
+        self.assertIn("'fit'", full)
         self.assertIn("suhu_motion_hand_refined.npz", full)
         self.assertNotIn("interpolate", full.lower())
         self.assertNotIn("smooth", full.lower())

@@ -68,9 +68,17 @@ def load_config(path):
         or len(set(preview_frames)) != len(preview_frames)
     ):
         raise ValueError("hand_refinement.preview_frames must contain unique positive integers")
-    for key in ("box_padding", "minimum_box_size"):
-        if not isinstance(hand_refinement.get(key), (int, float)) or hand_refinement[key] <= 0:
-            raise ValueError(f"hand_refinement.{key} must be positive")
+    if hand_refinement.get("method") != "mediapipe":
+        raise ValueError("hand_refinement.method must be mediapipe")
+    if not isinstance(hand_refinement.get("input_mirrored"), bool):
+        raise ValueError("hand_refinement.input_mirrored must be boolean")
+    for key in ("minimum_detection_confidence", "minimum_tracking_confidence"):
+        value = hand_refinement.get(key)
+        if not isinstance(value, (int, float)) or not 0.0 < value <= 1.0:
+            raise ValueError(f"hand_refinement.{key} must be greater than 0 and at most 1")
+    maximum_degrees = hand_refinement.get("maximum_joint_degrees")
+    if not isinstance(maximum_degrees, (int, float)) or not 0.0 < maximum_degrees <= 180.0:
+        raise ValueError("hand_refinement.maximum_joint_degrees must be greater than 0 and at most 180")
     return config
 
 
