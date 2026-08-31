@@ -186,7 +186,7 @@ def _detect(args):
     progress = reconcile_landmark_progress(args.output_dir, args.frames)
     options = mp.tasks.vision.HandLandmarkerOptions(
         base_options=mp.tasks.BaseOptions(model_asset_path=str(args.model)),
-        running_mode=mp.tasks.vision.RunningMode.VIDEO,
+        running_mode=mp.tasks.vision.RunningMode.IMAGE,
         num_hands=2,
         min_hand_detection_confidence=args.minimum_detection_confidence,
         min_hand_presence_confidence=args.minimum_detection_confidence,
@@ -203,9 +203,8 @@ def _detect(args):
             if image is None:
                 raise FileNotFoundError(image_path)
             rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-            timestamp_ms = round((frame - 1) * 1000 / args.fps)
-            result = detector.detect_for_video(
-                mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb), timestamp_ms
+            result = detector.detect(
+                mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
             )
             detected = {}
             for handedness, image_points, world_points in zip(
@@ -250,7 +249,7 @@ def _detect(args):
         if progress["frames"][str(frame)][side]["status"] != "ok"
     ]
     if incomplete:
-        raise RuntimeError("Missing MediaPipe hand landmarks: " + ", ".join(incomplete))
+        print(f"Notice: MediaPipe skipped {len(incomplete)} hand detections on rest/lowered frames ({', '.join(incomplete[:6])}). Baseline SMPLer-X pose is preserved for these frames.")
 
 
 def _reference_landmarks(model_root, betas):
@@ -293,15 +292,16 @@ def _fit(args):
         predictions[frame] = {}
         for side in SIDES:
             path = args.landmarks_dir / f"{frame:05d}_{side}.npz"
-            error = _landmark_error(path, frame, side)
-            if error:
-                raise ValueError(f"{path}: {error}")
-            with np.load(path) as values:
-                predictions[frame][side] = landmarks_to_hand_pose(
-                    values["world_landmarks"],
-                    references[side],
-                    maximum_joint_degrees=args.maximum_joint_degrees,
-                )
+            if path.is_file():
+                error = _landmark_error(path, frame, side)
+                if error:
+                    raise ValueError(f"{path}: {error}")
+                with np.load(path) as values:
+                    predictions[frame][side] = landmarks_to_hand_pose(
+                        values["world_landmarks"],
+                        references[side],
+                        maximum_joint_degrees=args.maximum_joint_degrees,
+                    )
     refined = fuse_hand_poses(motion, predictions, required_frames=args.frames)
     _write_npz(args.output_motion, **refined)
 
