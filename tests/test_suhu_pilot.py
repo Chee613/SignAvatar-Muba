@@ -55,6 +55,9 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config["model"], "smpler_x_h32")
         self.assertEqual(config["expected_source_frames"], 146)
         self.assertEqual(config["reviewer_count"], 3)
+        self.assertEqual(config["hand_refinement"]["preview_frames"], [16, 25, 38, 55, 73])
+        self.assertEqual(config["hand_refinement"]["box_padding"], 2.0)
+        self.assertEqual(config["hand_refinement"]["minimum_box_size"], 32)
 
     def test_source_probe_must_match_config(self):
         from suhu_pilot import validate_source_probe
@@ -179,6 +182,80 @@ class MotionTests(unittest.TestCase):
         self.assertAlmostEqual(
             report["jumps"]["right_hand_pose"]["maximum_degrees"], 90.0
         )
+
+
+class HandRefinementTests(unittest.TestCase):
+    @staticmethod
+    def motion(frames=2):
+        return {
+            "global_orient": np.arange(frames * 3).reshape(frames, 3),
+            "body_pose": np.arange(frames * 21 * 3).reshape(frames, 21, 3),
+            "left_hand_pose": np.zeros((frames, 15, 3)),
+            "right_hand_pose": np.zeros((frames, 15, 3)),
+            "betas": np.ones((frames, 10)),
+            "source_frame_number": np.arange(1, frames + 1),
+        }
+
+    @staticmethod
+    def rotations(z_degrees):
+        angle = np.radians(z_degrees)
+        matrix = np.array(
+            [
+                [np.cos(angle), -np.sin(angle), 0.0],
+                [np.sin(angle), np.cos(angle), 0.0],
+                [0.0, 0.0, 1.0],
+            ]
+        )
+        return np.repeat(matrix[None], 15, axis=0)
+
+    def test_left_mano_rotations_are_mirrored(self):
+        from suhu_pilot import mano_hand_pose_to_axis_angle
+
+        actual = mano_hand_pose_to_axis_angle(self.rotations(90), is_right=False)
+
+        np.testing.assert_allclose(actual, np.tile([0.0, 0.0, -np.pi / 2], (15, 1)))
+
+    def test_right_mano_rotations_keep_their_coordinate_system(self):
+        from suhu_pilot import mano_hand_pose_to_axis_angle
+
+        actual = mano_hand_pose_to_axis_angle(self.rotations(90), is_right=True)
+
+        np.testing.assert_allclose(actual, np.tile([0.0, 0.0, np.pi / 2], (15, 1)))
+
+    def test_fusion_changes_only_hand_pose_arrays(self):
+        from suhu_pilot import fuse_hand_predictions
+
+        motion = self.motion()
+        predictions = {
+            frame: {"left": self.rotations(30), "right": self.rotations(60)}
+            for frame in (1, 2)
+        }
+
+        refined = fuse_hand_predictions(motion, predictions)
+
+        for key in motion:
+            if key not in {"left_hand_pose", "right_hand_pose"}:
+                np.testing.assert_array_equal(refined[key], motion[key])
+        np.testing.assert_allclose(refined["left_hand_pose"][:, :, 2], -np.pi / 6)
+        np.testing.assert_allclose(refined["right_hand_pose"][:, :, 2], np.pi / 3)
+        self.assertFalse(np.shares_memory(refined["body_pose"], motion["body_pose"]))
+
+    def test_fusion_rejects_a_missing_side(self):
+        from suhu_pilot import fuse_hand_predictions
+
+        with self.assertRaisesRegex(ValueError, "frame 1 right"):
+            fuse_hand_predictions(
+                self.motion(frames=1),
+                {1: {"left": self.rotations(30)}},
+            )
+
+    def test_mano_conversion_rejects_invalid_values(self):
+        from suhu_pilot import mano_hand_pose_to_axis_angle
+
+        rotations = self.rotations(30)
+        rotations[0, 0, 0] = np.nan
+        with self.assertRaisesRegex(ValueError, "finite"):
+            mano_hand_pose_to_axis_angle(rotations, is_right=True)
 
 
 class ReviewTests(unittest.TestCase):

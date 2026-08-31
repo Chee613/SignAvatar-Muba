@@ -19,6 +19,7 @@ REQUIRED_CONFIG_KEYS = {
     "expected_source_frames",
     "temporary_avatar",
     "reviewer_count",
+    "hand_refinement",
 }
 UPSTREAM_MOTION_FIELDS = {
     "global_orient": ("global_orient", (1, 3)),
@@ -56,6 +57,20 @@ def load_config(path):
     ):
         if config[key] <= 0:
             raise ValueError(f"{key} must be positive")
+    hand_refinement = config["hand_refinement"]
+    if not isinstance(hand_refinement, dict):
+        raise ValueError("hand_refinement must be an object")
+    preview_frames = hand_refinement.get("preview_frames")
+    if (
+        not isinstance(preview_frames, list)
+        or not preview_frames
+        or any(not isinstance(frame, int) or frame <= 0 for frame in preview_frames)
+        or len(set(preview_frames)) != len(preview_frames)
+    ):
+        raise ValueError("hand_refinement.preview_frames must contain unique positive integers")
+    for key in ("box_padding", "minimum_box_size"):
+        if not isinstance(hand_refinement.get(key), (int, float)) or hand_refinement[key] <= 0:
+            raise ValueError(f"hand_refinement.{key} must be positive")
     return config
 
 
@@ -226,6 +241,41 @@ def _axis_angle_to_matrix(values):
         + b[:, None, None] * (skew @ skew)
     )
     return matrices.reshape(vectors.shape[:-1] + (3, 3))
+
+
+def mano_hand_pose_to_axis_angle(rotations, is_right):
+    from scipy.spatial.transform import Rotation
+
+    matrices = np.asarray(rotations, dtype=np.float64)
+    if matrices.shape != (15, 3, 3) or not np.isfinite(matrices).all():
+        raise ValueError("MANO hand pose must be finite with shape (15, 3, 3)")
+    if not is_right:
+        mirror = np.diag([-1.0, 1.0, 1.0])
+        matrices = mirror @ matrices @ mirror
+    return Rotation.from_matrix(matrices).as_rotvec()
+
+
+def fuse_hand_predictions(motion, predictions, required_frames=None):
+    refined = {
+        key: value.copy() if isinstance(value, np.ndarray) else value
+        for key, value in motion.items()
+    }
+    source_frames = np.asarray(motion["source_frame_number"])
+    frame_indexes = {int(frame): index for index, frame in enumerate(source_frames)}
+    frames = list(frame_indexes) if required_frames is None else list(required_frames)
+
+    for frame in frames:
+        if frame not in frame_indexes:
+            raise ValueError(f"frame {frame} is outside the motion")
+        frame_predictions = predictions.get(frame, {})
+        index = frame_indexes[frame]
+        for side, is_right in (("left", False), ("right", True)):
+            if side not in frame_predictions:
+                raise ValueError(f"frame {frame} {side} prediction is missing")
+            refined[f"{side}_hand_pose"][index] = mano_hand_pose_to_axis_angle(
+                frame_predictions[side], is_right=is_right
+            )
+    return refined
 
 
 def _jump_report(values):

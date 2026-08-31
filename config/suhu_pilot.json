@@ -8,5 +8,10 @@
   "source_fps": 50,
   "expected_source_frames": 146,
   "temporary_avatar": "smplx_neutral",
-  "reviewer_count": 3
+  "reviewer_count": 3,
+  "hand_refinement": {
+    "preview_frames": [16, 25, 38, 55, 73],
+    "box_padding": 2.0,
+    "minimum_box_size": 32
+  }
 }
