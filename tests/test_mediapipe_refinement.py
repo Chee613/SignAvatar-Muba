@@ -72,7 +72,7 @@ class FusionTests(unittest.TestCase):
         np.testing.assert_array_equal(refined["left_hand_pose"][1], left)
         np.testing.assert_array_equal(refined["right_hand_pose"][1], right)
 
-    def test_fusion_rejects_missing_hand(self):
+    def test_fusion_preserves_unpredicted_side(self):
         from mediapipe_refinement import fuse_hand_poses
 
         motion = {
@@ -80,9 +80,9 @@ class FusionTests(unittest.TestCase):
             "right_hand_pose": np.zeros((1, 15, 3)),
             "source_frame_number": np.array([1]),
         }
-
-        with self.assertRaisesRegex(ValueError, "frame 1 right"):
-            fuse_hand_poses(motion, {1: {"left": np.zeros((15, 3))}})
+        refined = fuse_hand_poses(motion, {1: {"left": np.ones((15, 3))}})
+        np.testing.assert_array_equal(refined["left_hand_pose"][0], np.ones((15, 3)))
+        np.testing.assert_array_equal(refined["right_hand_pose"][0], np.zeros((15, 3)))
 
 
 class ProgressTests(unittest.TestCase):

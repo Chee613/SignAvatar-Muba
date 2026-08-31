@@ -109,14 +109,13 @@ def fuse_hand_poses(motion, predictions, required_frames=None):
         if frame not in frame_indexes:
             raise ValueError(f"frame {frame} is outside the motion")
         index = frame_indexes[frame]
-        for side in SIDES:
-            try:
-                pose = np.asarray(predictions[frame][side], dtype=np.float64)
-            except KeyError as error:
-                raise ValueError(f"frame {frame} {side} prediction is missing") from error
-            if pose.shape != (15, 3) or not np.isfinite(pose).all():
-                raise ValueError(f"frame {frame} {side} pose must be finite with shape (15, 3)")
-            refined[f"{side}_hand_pose"][index] = pose
+        if frame in predictions:
+            for side in SIDES:
+                if side in predictions[frame]:
+                    pose = np.asarray(predictions[frame][side], dtype=np.float64)
+                    if pose.shape != (15, 3) or not np.isfinite(pose).all():
+                        raise ValueError(f"frame {frame} {side} pose must be finite with shape (15, 3)")
+                    refined[f"{side}_hand_pose"][index] = pose
     return refined
 
 
