@@ -25,66 +25,161 @@ HAND_CONNECTIONS = (
     (17, 18), (18, 19), (19, 20),
 )
 REFERENCE_CHAINS = ("index", "middle", "pinky", "ring", "thumb")
+BODY_WRIST_INDEXES = (19, 20)
 
 
-def _unit(vector, label):
-    vector = np.asarray(vector, dtype=np.float64)
-    length = np.linalg.norm(vector)
-    if not np.isfinite(length) or length < 1e-8:
-        raise ValueError(f"{label} is degenerate")
-    return vector / length
+def project_points(joints, focal, princpt, image_size):
+    import torch
+
+    if joints.shape[-1] != 3 or focal.shape[-1] != 2 or princpt.shape[-1] != 2:
+        raise ValueError("joints and camera parameters have invalid shapes")
+    depth = joints[..., 2:3].clamp_min(1e-4)
+    pixels = joints[..., :2] / depth * focal[:, None, :] + princpt[:, None, :]
+    size = torch.as_tensor(image_size, dtype=joints.dtype, device=joints.device)
+    return pixels / size
 
 
-def _palm_local(landmarks):
-    points = np.asarray(landmarks, dtype=np.float64)
-    if points.shape != (21, 3) or not np.isfinite(points).all():
-        raise ValueError("hand landmarks must be finite with shape (21, 3)")
-    across = _unit(points[5] - points[17], "palm width")
-    forward = _unit(points[9] - points[0], "palm length")
-    normal = _unit(np.cross(across, forward), "palm normal")
-    forward = _unit(np.cross(normal, across), "palm frame")
-    frame = np.column_stack((across, forward, normal))
-    return (points - points[0]) @ frame
+def sequence_objective(
+    projected,
+    target,
+    weights,
+    hand_pose,
+    initial_hand_pose,
+    wrist_pose,
+    initial_wrist_pose,
+    frame_numbers,
+    maximum_joint_degrees,
+    initial_pose_weight,
+    temporal_weight,
+    wrist_weight,
+):
+    import torch
+    import torch.nn.functional as functional
 
-
-def _rotation_between(source, target):
-    source = _unit(source, "reference bone")
-    target = _unit(target, "detected bone")
-    cosine = float(np.clip(np.dot(source, target), -1.0, 1.0))
-    if cosine > 1.0 - 1e-10:
-        return np.eye(3)
-    if cosine < -1.0 + 1e-10:
-        basis = np.eye(3)[int(np.argmin(np.abs(source)))]
-        axis = _unit(np.cross(source, basis), "opposite bone axis")
-        return 2.0 * np.outer(axis, axis) - np.eye(3)
-    cross = np.cross(source, target)
-    skew = np.array(
-        [[0.0, -cross[2], cross[1]], [cross[2], 0.0, -cross[0]], [-cross[1], cross[0], 0.0]]
+    point_error = functional.smooth_l1_loss(projected, target, reduction="none", beta=0.01).sum(-1)
+    reprojection = (point_error * weights).sum() / weights.sum().clamp_min(1.0)
+    initial_pose = (hand_pose - initial_hand_pose).square().mean()
+    wrist = (wrist_pose - initial_wrist_pose).square().mean()
+    temporal = hand_pose.new_zeros(())
+    if len(hand_pose) > 1:
+        gaps = (frame_numbers[1:] - frame_numbers[:-1]).clamp_min(1.0)
+        hand_velocity = (hand_pose[1:] - hand_pose[:-1]) / gaps[:, None, None, None]
+        wrist_velocity = (wrist_pose[1:] - wrist_pose[:-1]) / gaps[:, None, None]
+        temporal = hand_velocity.square().mean() + wrist_velocity.square().mean()
+        if len(hand_pose) > 2:
+            temporal = temporal + (hand_velocity[1:] - hand_velocity[:-1]).square().mean()
+    maximum_radians = torch.deg2rad(hand_pose.new_tensor(maximum_joint_degrees))
+    angle_limit = torch.relu(torch.linalg.vector_norm(hand_pose, dim=-1) - maximum_radians).square().mean()
+    total = (
+        reprojection
+        + initial_pose_weight * initial_pose
+        + temporal_weight * temporal
+        + wrist_weight * wrist
+        + 0.05 * angle_limit
     )
-    return np.eye(3) + skew + skew @ skew / (1.0 + cosine)
+    return {
+        "total": total,
+        "reprojection": reprojection,
+        "initial_pose": initial_pose,
+        "temporal": temporal,
+        "wrist": wrist,
+        "angle_limit": angle_limit,
+    }
 
 
-def landmarks_to_hand_pose(landmarks, reference_landmarks, maximum_joint_degrees=150.0):
-    from scipy.spatial.transform import Rotation
+def optimize_hand_sequence(
+    model,
+    motion,
+    indexes,
+    joint_indexes,
+    target,
+    weights,
+    focal,
+    princpt,
+    image_size,
+    frame_numbers,
+    optimization_steps,
+    learning_rate,
+    maximum_joint_degrees,
+    initial_pose_weight,
+    temporal_weight,
+    wrist_weight,
+    device,
+):
+    import torch
 
-    target = _palm_local(landmarks)
-    reference = _palm_local(reference_landmarks)
-    matrices = np.repeat(np.eye(3)[None], 15, axis=0)
-    for chain, pose_start in FINGER_CHAINS:
-        cumulative = np.eye(3)
-        for offset, (parent, child) in enumerate(zip(chain[:-1], chain[1:])):
-            reference_direction = _unit(reference[child] - reference[parent], "reference bone")
-            target_direction = _unit(target[child] - target[parent], "detected bone")
-            local_target = cumulative.T @ target_direction
-            local_rotation = _rotation_between(reference_direction, local_target)
-            matrices[pose_start + offset] = local_rotation
-            cumulative = cumulative @ local_rotation
-    pose = Rotation.from_matrix(matrices).as_rotvec()
-    degrees = np.degrees(np.linalg.norm(pose, axis=1))
-    if np.any(degrees > maximum_joint_degrees):
-        joint = int(np.argmax(degrees))
-        raise ValueError(f"joint {joint} rotation is {degrees[joint]:.1f} degrees")
-    return pose
+    device = torch.device(device)
+    model = model.to(device).eval()
+    for parameter in model.parameters():
+        parameter.requires_grad_(False)
+
+    def values(name):
+        return torch.as_tensor(np.asarray(motion[name])[indexes], dtype=torch.float32, device=device)
+
+    initial_hand = torch.stack((values("left_hand_pose"), values("right_hand_pose")), dim=1)
+    base_body = values("body_pose")
+    initial_wrist = base_body[:, BODY_WRIST_INDEXES].clone()
+    hand_pose = torch.nn.Parameter(initial_hand.clone())
+    wrist_pose = torch.nn.Parameter(initial_wrist.clone())
+    optimizer = torch.optim.Adam((hand_pose, wrist_pose), lr=learning_rate)
+    target = target.to(device)
+    weights = weights.to(device)
+    focal = focal.to(device)
+    princpt = princpt.to(device)
+    frame_numbers = frame_numbers.to(device)
+    joint_indexes = torch.as_tensor(joint_indexes, dtype=torch.long, device=device)
+    fixed = {
+        "global_orient": values("global_orient"),
+        "jaw_pose": values("jaw_pose"),
+        "leye_pose": values("left_eye_pose"),
+        "reye_pose": values("right_eye_pose"),
+        "betas": values("betas"),
+        "expression": values("expression"),
+        "transl": values("translation"),
+    }
+    initial_losses = None
+    losses = None
+    for _ in range(optimization_steps):
+        optimizer.zero_grad()
+        body_pose = base_body.clone()
+        body_pose[:, BODY_WRIST_INDEXES] = wrist_pose
+        output = model(
+            body_pose=body_pose.reshape(len(indexes), -1),
+            left_hand_pose=hand_pose[:, 0].reshape(len(indexes), -1),
+            right_hand_pose=hand_pose[:, 1].reshape(len(indexes), -1),
+            return_verts=False,
+            **fixed,
+        )
+        joints = output.joints[:, joint_indexes].reshape(len(indexes), -1, 3)
+        projected = project_points(joints, focal, princpt, image_size).reshape(len(indexes), 2, 21, 2)
+        losses = sequence_objective(
+            projected,
+            target,
+            weights,
+            hand_pose,
+            initial_hand,
+            wrist_pose,
+            initial_wrist,
+            frame_numbers,
+            maximum_joint_degrees,
+            initial_pose_weight,
+            temporal_weight,
+            wrist_weight,
+        )
+        if not torch.isfinite(losses["total"]):
+            raise RuntimeError("hand optimization produced a non-finite loss")
+        if initial_losses is None:
+            initial_losses = {name: float(value.detach().cpu()) for name, value in losses.items()}
+        losses["total"].backward()
+        torch.nn.utils.clip_grad_norm_((hand_pose, wrist_pose), 10.0)
+        optimizer.step()
+    return {
+        "left_hand_pose": hand_pose[:, 0].detach().cpu().numpy(),
+        "right_hand_pose": hand_pose[:, 1].detach().cpu().numpy(),
+        "wrist_pose": wrist_pose.detach().cpu().numpy(),
+        "initial_losses": initial_losses,
+        "final_losses": {name: float(value.detach().cpu()) for name, value in losses.items()},
+    }
 
 
 def source_side(label, input_mirrored=False):
@@ -94,29 +189,6 @@ def source_side(label, input_mirrored=False):
     if input_mirrored:
         return normalized
     return "right" if normalized == "left" else "left"
-
-
-def fuse_hand_poses(motion, predictions, required_frames=None):
-    refined = {
-        key: value.copy() if isinstance(value, np.ndarray) else value
-        for key, value in motion.items()
-    }
-    frame_indexes = {
-        int(frame): index for index, frame in enumerate(np.asarray(motion["source_frame_number"]))
-    }
-    frames = list(frame_indexes) if required_frames is None else list(required_frames)
-    for frame in frames:
-        if frame not in frame_indexes:
-            raise ValueError(f"frame {frame} is outside the motion")
-        index = frame_indexes[frame]
-        if frame in predictions:
-            for side in SIDES:
-                if side in predictions[frame]:
-                    pose = np.asarray(predictions[frame][side], dtype=np.float64)
-                    if pose.shape != (15, 3) or not np.isfinite(pose).all():
-                        raise ValueError(f"frame {frame} {side} pose must be finite with shape (15, 3)")
-                    refined[f"{side}_hand_pose"][index] = pose
-    return refined
 
 
 def _landmark_error(path, frame, side):
@@ -251,61 +323,99 @@ def _detect(args):
         print(f"Notice: MediaPipe skipped {len(incomplete)} hand detections on rest/lowered frames ({', '.join(incomplete[:6])}). Baseline SMPLer-X pose is preserved for these frames.")
 
 
-def _reference_landmarks(model_root, betas):
+def _fit(args):
     import smplx
     import torch
     from smplx.joint_names import JOINT_NAMES
 
+    with np.load(args.motion) as archive:
+        motion = {key: archive[key] for key in archive.files}
+    source_frames = [int(frame) for frame in motion["source_frame_number"]]
+    frame_indexes = {frame: index for index, frame in enumerate(source_frames)}
+    missing_frames = [frame for frame in args.frames if frame not in frame_indexes]
+    if missing_frames:
+        raise ValueError(f"frames are outside the motion: {missing_frames}")
+    if args.optimization_steps <= 0 or args.learning_rate <= 0:
+        raise ValueError("optimization steps and learning rate must be positive")
+
+    selected_indexes = [frame_indexes[frame] for frame in args.frames]
+    target = np.zeros((len(args.frames), 2, 21, 2), dtype=np.float32)
+    weights = np.zeros((len(args.frames), 2, 21), dtype=np.float32)
+    observed = np.zeros((len(args.frames), 2), dtype=bool)
+    for row, frame in enumerate(args.frames):
+        for side_index, side in enumerate(SIDES):
+            path = args.landmarks_dir / f"{frame:05d}_{side}.npz"
+            if not path.is_file() or _landmark_error(path, frame, side):
+                continue
+            with np.load(path) as values:
+                target[row, side_index] = values["image_landmarks"][:, :2]
+                weights[row, side_index] = float(values["handedness_score"])
+                observed[row, side_index] = True
+    if not observed.any():
+        raise RuntimeError("MediaPipe did not provide any valid hand observations")
+
+    metas = [json.loads((args.meta_dir / f"{frame:05d}_0.json").read_text()) for frame in args.frames]
+    focal = torch.tensor(np.asarray([item["focal"] for item in metas]), dtype=torch.float32)
+    princpt = torch.tensor(np.asarray([item["princpt"] for item in metas]), dtype=torch.float32)
+    names = {name: index for index, name in enumerate(JOINT_NAMES)}
+    joint_indexes = np.zeros((2, 21), dtype=np.int64)
+    for side_index, side in enumerate(SIDES):
+        joint_indexes[side_index, 0] = names[f"{side}_wrist"]
+        for (chain, _), finger in zip(FINGER_CHAINS, REFERENCE_CHAINS):
+            joint_names = [f"{side}_{finger}{number}" for number in (1, 2, 3)] + [f"{side}_{finger}"]
+            for landmark_index, name in zip(chain, joint_names):
+                joint_indexes[side_index, landmark_index] = names[name]
+
     model = smplx.create(
-        str(model_root),
+        str(args.model_root),
         model_type="smplx",
         gender="neutral",
         ext="npz",
         use_pca=False,
-        flat_hand_mean=True,
+        flat_hand_mean=False,
         num_betas=10,
         num_expression_coeffs=10,
     )
-    with torch.no_grad():
-        output = model(betas=torch.tensor(np.asarray(betas)[None], dtype=torch.float32))
-    joints = output.joints[0].detach().cpu().numpy()
-    indexes = {name: index for index, name in enumerate(JOINT_NAMES[: len(joints)])}
-    references = {}
-    for side in SIDES:
-        points = np.zeros((21, 3), dtype=np.float64)
-        points[0] = joints[indexes[f"{side}_wrist"]]
-        for (chain, _), finger in zip(FINGER_CHAINS, REFERENCE_CHAINS):
-            names = [f"{side}_{finger}{number}" for number in (1, 2, 3)] + [f"{side}_{finger}"]
-            for landmark_index, name in zip(chain, names):
-                points[landmark_index] = joints[indexes[name]]
-        references[side] = points
-    return references
-
-
-def _fit(args):
-    with np.load(args.motion) as archive:
-        motion = {key: archive[key] for key in archive.files}
-    references = _reference_landmarks(args.model_root, np.median(motion["betas"], axis=0))
-    predictions = {}
-    for frame in args.frames:
-        predictions[frame] = {}
-        for side in SIDES:
-            path = args.landmarks_dir / f"{frame:05d}_{side}.npz"
-            if path.is_file():
-                error = _landmark_error(path, frame, side)
-                if error:
-                    continue
-                try:
-                    with np.load(path) as values:
-                        predictions[frame][side] = landmarks_to_hand_pose(
-                            values["world_landmarks"],
-                            references[side],
-                            maximum_joint_degrees=args.maximum_joint_degrees,
-                        )
-                except Exception as exc:
-                    print(f"Notice: frame {frame} {side} skipped ({exc}); baseline SMPLer-X pose preserved.")
-    refined = fuse_hand_poses(motion, predictions, required_frames=args.frames)
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    result = optimize_hand_sequence(
+        model=model,
+        motion=motion,
+        indexes=selected_indexes,
+        joint_indexes=joint_indexes,
+        target=torch.tensor(target),
+        weights=torch.tensor(weights),
+        focal=focal,
+        princpt=princpt,
+        image_size=(args.image_width, args.image_height),
+        frame_numbers=torch.tensor(args.frames, dtype=torch.float32),
+        optimization_steps=args.optimization_steps,
+        learning_rate=args.learning_rate,
+        maximum_joint_degrees=args.maximum_joint_degrees,
+        initial_pose_weight=args.initial_pose_weight,
+        temporal_weight=args.temporal_weight,
+        wrist_weight=args.wrist_weight,
+        device=device,
+    )
+    refined = {key: value.copy() if isinstance(value, np.ndarray) else value for key, value in motion.items()}
+    for row, index in enumerate(selected_indexes):
+        for side_index, side in enumerate(SIDES):
+            if observed[row, side_index]:
+                refined[f"{side}_hand_pose"][index] = result[f"{side}_hand_pose"][row]
+                refined["body_pose"][index, BODY_WRIST_INDEXES[side_index]] = result["wrist_pose"][row, side_index]
     _write_npz(args.output_motion, **refined)
+    qa = {
+        "method": "mediapipe_smplx_optimization",
+        "device": device,
+        "optimization_steps": args.optimization_steps,
+        "observed_left_frames": int(observed[:, 0].sum()),
+        "observed_right_frames": int(observed[:, 1].sum()),
+        "requested_frames": len(args.frames),
+        "initial_losses": result["initial_losses"],
+        "final_losses": result["final_losses"],
+    }
+    if args.qa_output:
+        atomic_write_json(args.qa_output, qa)
+    print(json.dumps(qa, indent=2))
 
 
 def _build_parser():
@@ -324,9 +434,18 @@ def _build_parser():
     fit.add_argument("--motion", type=Path, required=True)
     fit.add_argument("--model-root", type=Path, required=True)
     fit.add_argument("--landmarks-dir", type=Path, required=True)
+    fit.add_argument("--meta-dir", type=Path, required=True)
     fit.add_argument("--output-motion", type=Path, required=True)
+    fit.add_argument("--qa-output", type=Path)
     fit.add_argument("--frames", type=_parse_frames, required=True)
-    fit.add_argument("--maximum-joint-degrees", type=float, default=150.0)
+    fit.add_argument("--image-width", type=int, required=True)
+    fit.add_argument("--image-height", type=int, required=True)
+    fit.add_argument("--optimization-steps", type=int, default=600)
+    fit.add_argument("--learning-rate", type=float, default=0.01)
+    fit.add_argument("--maximum-joint-degrees", type=float, default=120.0)
+    fit.add_argument("--initial-pose-weight", type=float, default=0.02)
+    fit.add_argument("--temporal-weight", type=float, default=0.05)
+    fit.add_argument("--wrist-weight", type=float, default=0.1)
     return parser
 
 

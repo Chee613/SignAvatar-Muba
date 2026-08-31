@@ -10,11 +10,16 @@
   "temporary_avatar": "smplx_neutral",
   "reviewer_count": 3,
   "hand_refinement": {
-    "method": "mediapipe",
+    "method": "mediapipe_smplx_optimization",
     "input_mirrored": false,
     "preview_frames": [16, 25, 38, 55, 73],
     "minimum_detection_confidence": 0.5,
     "minimum_tracking_confidence": 0.5,
-    "maximum_joint_degrees": 150
+    "maximum_joint_degrees": 120,
+    "optimization_steps": 600,
+    "learning_rate": 0.01,
+    "initial_pose_weight": 0.02,
+    "temporal_weight": 0.05,
+    "wrist_weight": 0.1
   }
 }
