@@ -1,0 +1,12 @@
+{
+  "sign_id": "SUHU",
+  "source_video": "Suhu.mp4",
+  "processing_fps": 30,
+  "model": "smpler_x_h32",
+  "source_frame_width": 1280,
+  "source_frame_height": 720,
+  "source_fps": 50,
+  "expected_source_frames": 146,
+  "temporary_avatar": "smplx_neutral",
+  "reviewer_count": 3
+}

@@ -1,0 +1,22 @@
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+
+# Private source material and generated runs
+Video_WordOnly/
+Video_WordOnly.zip
+inputs/
+models/
+runs/
+reviews/
+frames/
+
+# Restricted models and generated media
+*.pth
+*.pth.tar
+*.pkl
+*.npz
+*.obj
+*.mp4
+*.avi
+*.mov
