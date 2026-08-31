@@ -228,6 +228,16 @@ class ReviewTests(unittest.TestCase):
 
 
 class NotebookTests(unittest.TestCase):
+    def test_colab_repairs_torchgeometry_boolean_mask_operations(self):
+        notebook_path = Path(__file__).parents[1] / "notebooks/suhu_pilot_colab.ipynb"
+        notebook = json.loads(notebook_path.read_text(encoding="utf-8"))
+        cells = {cell["id"]: cell for cell in notebook["cells"]}
+        environment_source = "".join(cells["environment"]["source"])
+
+        self.assertIn("torchgeometry/core/conversions.py", environment_source)
+        self.assertIn("mask_d2 * (~mask_d0_d1)", environment_source)
+        self.assertIn("torchgeometry-bool-mask=v1", environment_source)
+
     def test_colab_pins_yapf_for_mmcv_compatibility(self):
         notebook_path = Path(__file__).parents[1] / "notebooks/suhu_pilot_colab.ipynb"
         notebook = json.loads(notebook_path.read_text(encoding="utf-8"))
